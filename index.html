@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>시급 임금 명세서 작성기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            body * { visibility: hidden; }
+            #print-section, #print-section * { visibility: visible; }
+            #print-section { position: absolute; left: 0; top: 0; width: 100%; padding: 0; margin: 0; }
+            .no-print { display: none !important; }
+        }
+        .calendar-grid { 
+            display: grid; 
+            grid-template-columns: repeat(7, 1fr); 
+            gap: 1px; 
+            background-color: #d1d5db; 
+            border: 1px solid #d1d5db; 
+        }
+        .calendar-cell { 
+            background-color: white; 
+            padding: 4px; 
+            display: flex; 
+            flex-direction: column; 
+        }
+        .input-cell { min-height: 60px; }
+        .output-cell { min-height: 80px; }
+        .calendar-header { 
+            background-color: #f3f4f6; 
+            text-align: center; 
+            font-weight: bold; 
+            padding: 6px 0; 
+            font-size: 0.875rem; 
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 font-sans">
+    <div class="max-w-7xl mx-auto flex flex-col xl:flex-row gap-8">
+        
+        <!-- 왼쪽: 입력 및 설정 (인쇄 시 숨김) -->
+        <div class="w-full xl:w-1/2 bg-white rounded-xl shadow-lg p-6 no-print">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">⚙️ 근무 및 임금 설정</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-600 mb-1">대상 연월</label>
+                    <div class="flex gap-2">
+                        <input type="number" id="targetYear" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-400 outline-none" value="2026">
+                        <input type="number" id="targetMonth" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-400 outline-none" value="9" min="1" max="12">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-600 mb-1">성명</label>
+                    <input type="text" id="workerName" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-400 outline-none" placeholder="홍길동">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-600 mb-1">시급 (원)</label>
+                    <input type="number" id="hourlyWage" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-400 outline-none" value="10000" step="100">
+                </div>
+            </div>
+
+            <!-- 평일 일괄 입력 -->
+            <div class="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-100 flex flex-wrap gap-3 items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-blue-800">평일(월~금) 일괄 입력:</span>
+                    <input type="number" id="batchHours" class="w-20 border rounded p-1.5 outline-none text-center" placeholder="시간" value="8">
+                    <span class="text-sm">시간</span>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="applyBatchHours()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded shadow transition text-sm">일괄 적용</button>
+                    <button onclick="clearCalendar()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-1.5 rounded shadow transition text-sm">초기화</button>
+                </div>
+            </div>
+
+            <!-- 입력용 달력 -->
+            <div class="mb-6">
+                <h3 class="text-sm font-bold text-gray-700 mb-2" id="inputCalendarHeader">근무일 및 시간 입력</h3>
+                <div class="calendar-grid text-sm" id="inputCalendar">
+                    <!-- JS로 자동 생성됨 -->
+                </div>
+            </div>
+
+            <!-- 수당 및 공제 토글 옵션 -->
+            <div class="space-y-3 border-t pt-4 mb-6">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="toggleJuhyu" class="w-5 h-5 text-blue-600 rounded" checked onchange="calculate()">
+                    <span class="text-gray-700 font-medium">주휴수당 포함 (기본급의 20% 자동계산)</span>
+                </label>
+                <div class="flex items-center gap-2">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="toggleOvertime" class="w-5 h-5 text-blue-600 rounded" onchange="calculate()">
+                        <span class="text-gray-700 font-medium">연장근로수당 포함 (직접입력)</span>
+                    </label>
+                    <input type="number" id="overtimeAmount" class="border rounded p-1 w-32 outline-none" placeholder="금액 입력(원)" oninput="calculate()">
+                </div>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="toggleDeductions" class="w-5 h-5 text-blue-600 rounded" checked onchange="calculate()">
+                    <span class="text-gray-700 font-medium">4대보험 공제 내역 표시 (예상액)</span>
+                </label>
+            </div>
+            
+            <!-- 인쇄 및 공유 버튼 -->
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button onclick="shareLink()" class="w-full sm:w-1/3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-lg py-3 rounded-xl shadow-lg transition">🔗 링크 공유</button>
+                <button onclick="window.print()" class="w-full sm:w-2/3 bg-green-600 hover:bg-green-700 text-white font-bold text-lg py-3 rounded-xl shadow-lg transition">🖨️ 인쇄하기</button>
+            </div>
+        </div>
+
+        <!-- 오른쪽: 임금명세서 출력 영역 -->
+        <div class="w-full xl:w-1/2 bg-white rounded-xl shadow-lg p-8" id="print-section">
+            <div class="border-b-4 border-gray-800 pb-4 mb-6 text-center">
+                <h1 class="text-3xl font-extrabold text-gray-900 tracking-wider">임 금 명 세 서</h1>
+            </div>
+
+            <div class="flex justify-between mb-6 text-sm md:text-base border-b pb-4">
+                <div class="space-y-1">
+                    <p><span class="font-bold inline-block w-20">귀속 연월:</span> <span id="outPeriod" class="text-gray-800"></span></p>
+                    <p><span class="font-bold inline-block w-20">성 명:</span> <span id="outName" class="font-bold text-lg text-blue-800"></span> 님</p>
+                </div>
+                <div class="text-right space-y-1">
+                    <p><span class="font-bold text-gray-600">적용 시급:</span> <span id="outWage" class="font-bold">0</span>원</p>
+                    <p><span class="font-bold text-gray-600">총 근로시간:</span> <span id="outTotalHours" class="font-bold">0</span>시간</p>
+                </div>
+            </div>
+
+            <!-- 달력형 근무 상세 내역 -->
+            <div class="mb-6">
+                <h3 class="text-lg font-bold text-gray-800 mb-2 border-l-4 border-gray-800 pl-2">근무 상세 내역 (시간 및 일금액)</h3>
+                <div class="calendar-grid text-[10px] sm:text-xs" id="outputCalendar">
+                    <!-- JS로 자동 생성됨 -->
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <!-- 지급 내역 표 -->
+                <table class="w-full border-collapse border border-gray-300">
+                    <thead class="bg-gray-100">
+                        <tr><th colspan="2" class="border border-gray-300 p-2 text-center font-bold">지급 내역</th></tr>
+                    </thead>
+                    <tbody class="text-sm">
+                        <tr>
+                            <td class="border border-gray-300 p-2 text-gray-700">기본급</td>
+                            <td class="border border-gray-300 p-2 text-right font-semibold"><span id="outBasePay">0</span></td>
+                        </tr>
+                        <tr id="rowJuhyu">
+                            <td class="border border-gray-300 p-2 text-gray-700">주휴수당</td>
+                            <td class="border border-gray-300 p-2 text-right"><span id="outJuhyu">0</span></td>
+                        </tr>
+                        <tr id="rowOvertime">
+                            <td class="border border-gray-300 p-2 text-gray-700">연장근로수당</td>
+                            <td class="border border-gray-300 p-2 text-right"><span id="outOvertime">0</span></td>
+                        </tr>
+                    </tbody>
+                    <tfoot class="text-sm">
+                        <tr class="bg-blue-50 font-bold">
+                            <td class="border border-gray-300 p-2 text-gray-800">지급 합계 (A)</td>
+                            <td class="border border-gray-300 p-2 text-right text-blue-700 text-base"><span id="outTotalPay">0</span></td>
+                        </tr>
+                    </tfoot>
+                </table>
+
+                <!-- 공제 내역 표 -->
+                <div class="w-full h-full flex flex-col">
+                    <table class="w-full border-collapse border border-gray-300" id="deductionTable">
+                        <thead class="bg-gray-100">
+                            <tr><th colspan="2" class="border border-gray-300 p-2 text-center font-bold">공제 내역</th></tr>
+                        </thead>
+                        <tbody class="text-sm">
+                            <tr>
+                                <td class="border border-gray-300 p-2 text-gray-700">국민연금 (4.5%)</td>
+                                <td class="border border-gray-300 p-2 text-right"><span id="outPension">0</span></td>
+                            </tr>
+                            <tr>
+                                <td class="border border-gray-300 p-2 text-gray-700">건강보험 (3.545%)</td>
+                                <td class="border border-gray-300 p-2 text-right"><span id="outHealth">0</span></td>
+                            </tr>
+                            <tr>
+                                <td class="border border-gray-300 p-2 text-gray-700">장기요양 (건보의 12.95%)</td>
+                                <td class="border border-gray-300 p-2 text-right"><span id="outCare">0</span></td>
+                            </tr>
+                            <tr>
+                                <td class="border border-gray-300 p-2 text-gray-700">고용보험 (0.9%)</td>
+                                <td class="border border-gray-300 p-2 text-right"><span id="outEmp">0</span></td>
+                            </tr>
+                        </tbody>
+                        <tfoot class="text-sm">
+                            <tr class="bg-red-50 font-bold">
+                                <td class="border border-gray-300 p-2 text-gray-800">공제 합계 (B)</td>
+                                <td class="border border-gray-300 p-2 text-right text-red-600 text-base"><span id="outTotalDeduct">0</span></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    <!-- 공제 내역 없을 시 표시 -->
+                    <div id="noDeductionMsg" class="hidden flex-1 flex items-center justify-center border border-gray-300 bg-gray-50 text-gray-500 font-medium">
+                        공제 내역 없음
+                    </div>
+                </div>
+            </div>
+
+            <!-- 실 수령액 -->
+            <div class="border-4 border-gray-800 p-4 text-center bg-blue-50 flex justify-between items-center mt-auto rounded-lg">
+                <span class="text-xl font-bold text-gray-800">실 수령액 (A - B)</span>
+                <span class="text-3xl font-extrabold text-blue-800"><span id="outNetPay">0</span> <span class="text-xl font-bold text-gray-800">원</span></span>
+            </div>
+            
+            <div class="mt-8 text-center text-gray-600 text-sm">
+                <p>위와 같이 임금을 지급함.</p>
+                <p class="mt-2 font-bold text-gray-800 text-base" id="outToday"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let workHours = {};
+        const daysOfWeek = ['일', '월', '화', '수', '목', '금', '토'];
+        
+        const targetYear = document.getElementById('targetYear');
+        const targetMonth = document.getElementById('targetMonth');
+        const workerName = document.getElementById('workerName');
+        const hourlyWage = document.getElementById('hourlyWage');
+        const inputCalendar = document.getElementById('inputCalendar');
+        const outputCalendar = document.getElementById('outputCalendar');
+        const toggleJuhyu = document.getElementById('toggleJuhyu');
+        const toggleOvertime = document.getElementById('toggleOvertime');
+        const overtimeAmount = document.getElementById('overtimeAmount');
+        const toggleDeductions = document.getElementById('toggleDeductions');
+
+        function loadStateFromUrl() {
+            if (window.location.hash) {
+                try {
+                    const hash = window.location.hash.substring(1);
+                    const state = JSON.parse(decodeURIComponent(escape(atob(hash))));
+                    
+                    targetYear.value = state.y;
+                    targetMonth.value = state.m;
+                    workerName.value = state.n;
+                    hourlyWage.value = state.w;
+                    workHours = state.h || {};
+                    toggleJuhyu.checked = state.tj;
+                    toggleOvertime.checked = state.to;
+                    overtimeAmount.value = state.oa;
+                    toggleDeductions.checked = state.td;
+                    return true;
+                } catch (e) {
+                    console.error("URL 데이터 파싱 실패", e);
+                }
+            }
+            return false;
+        }
+
+        function shareLink() {
+            const state = {
+                y: targetYear.value,
+                m: targetMonth.value,
+                n: workerName.value,
+                w: hourlyWage.value,
+                h: workHours,
+                tj: toggleJuhyu.checked,
+                to: toggleOvertime.checked,
+                oa: overtimeAmount.value,
+                td: toggleDeductions.checked
+            };
+            
+            // 한글 및 객체를 깨지지 않게 base64로 인코딩
+            const hashString = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+            
+            // 해시값 업데이트 (페이지 리로드 없음)
+            window.location.hash = hashString;
+            
+            // 클립보드에 복사
+            const shareUrl = window.location.href;
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                alert('공유 링크가 클립보드에 복사되었습니다!\n이 링크를 붙여넣기하면 현재 입력된 상태 그대로 열립니다.');
+            }).catch(() => {
+                alert('링크 복사에 실패했습니다. 브라우저 주소창의 URL을 직접 복사해주세요.');
+            });
+        }
+
+        function init() {
+            const isLoaded = loadStateFromUrl();
+            
+            if (!isLoaded) {
+                const today = new Date();
+                targetYear.value = today.getFullYear();
+                targetMonth.value = today.getMonth() + 1;
+            }
+            
+            const todayDate = new Date();
+            document.getElementById('outToday').innerText = `${todayDate.getFullYear()}년 ${todayDate.getMonth() + 1}월 ${todayDate.getDate()}일`;
+
+            targetYear.addEventListener('change', buildCalendars);
+            targetMonth.addEventListener('change', buildCalendars);
+            workerName.addEventListener('input', calculate);
+            hourlyWage.addEventListener('input', calculate);
+
+            buildCalendars();
+        }
+
+        function buildCalendars() {
+            const year = parseInt(targetYear.value);
+            const month = parseInt(targetMonth.value);
+            
+            document.getElementById('inputCalendarHeader').innerText = `${year}년 ${month}월`;
+            
+            const firstDay = new Date(year, month - 1, 1).getDay();
+            const daysInMonth = new Date(year, month, 0).getDate();
+
+            let inputHtml = daysOfWeek.map(d => `<div class="calendar-header ${d==='일'?'text-red-500':(d==='토'?'text-blue-500':'')}">${d}</div>`).join('');
+            let outputHtml = daysOfWeek.map(d => `<div class="calendar-header ${d==='일'?'text-red-500':(d==='토'?'text-blue-500':'')}">${d}</div>`).join('');
+
+            for (let i = 0; i < firstDay; i++) {
+                inputHtml += `<div class="calendar-cell bg-gray-100"></div>`;
+                outputHtml += `<div class="calendar-cell bg-gray-100"></div>`;
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                let dayOfWeek = (firstDay + day - 1) % 7;
+                let colorClass = 'bg-white';
+                let textClass = 'text-gray-600';
+                
+                if (dayOfWeek === 0) { colorClass = 'bg-red-50'; textClass = 'text-red-500'; } 
+                if (dayOfWeek === 6) { colorClass = 'bg-blue-50'; textClass = 'text-blue-500'; } 
+
+                const val = workHours[day] || '';
+                
+                inputHtml += `
+                    <div class="calendar-cell input-cell ${colorClass}">
+                        <span class="text-[11px] font-bold mb-1 ${textClass}">${day}</span>
+                        <input type="number" min="0" max="24" class="w-full text-center border rounded p-1 text-sm outline-none focus:ring-1 focus:ring-blue-400 hour-input" data-day="${day}" value="${val}" onchange="updateHour(${day}, this.value)">
+                    </div>
+                `;
+                
+                outputHtml += `
+                    <div class="calendar-cell output-cell ${colorClass}">
+                        <span class="font-bold ${textClass} mb-1">${day}</span>
+                        <div class="flex-1 flex flex-col justify-start gap-1" id="outCellContent-${day}"></div>
+                    </div>
+                `;
+            }
+            
+            inputCalendar.innerHTML = inputHtml;
+            outputCalendar.innerHTML = outputHtml;
+            
+            calculate();
+        }
+
+        function updateHour(day, value) {
+            const val = parseFloat(value);
+            if (val > 0) {
+                workHours[day] = val;
+            } else {
+                delete workHours[day];
+            }
+            // 값이 바뀔 때마다 해시 초기화 (수정 중이므로)
+            window.location.hash = '';
+            calculate();
+        }
+
+        function applyBatchHours() {
+            const hours = parseFloat(document.getElementById('batchHours').value);
+            if (isNaN(hours) || hours < 0) return;
+
+            const year = parseInt(targetYear.value);
+            const month = parseInt(targetMonth.value);
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const firstDay = new Date(year, month - 1, 1).getDay();
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayOfWeek = (firstDay + day - 1) % 7;
+                if (dayOfWeek >= 1 && dayOfWeek <= 5) { // 월~금
+                    workHours[day] = hours;
+                    const input = document.querySelector(`.hour-input[data-day="${day}"]`);
+                    if(input) input.value = hours;
+                }
+            }
+            window.location.hash = '';
+            calculate();
+        }
+
+        function clearCalendar() {
+            workHours = {};
+            window.location.hash = '';
+            buildCalendars();
+        }
+
+        function calculate() {
+            const wage = parseFloat(hourlyWage.value) || 0;
+            let totalHours = 0;
+            
+            const year = parseInt(targetYear.value);
+            const month = parseInt(targetMonth.value);
+            const daysInMonth = new Date(year, month, 0).getDate();
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const contentDiv = document.getElementById(`outCellContent-${day}`);
+                if (!contentDiv) continue;
+                
+                if (workHours[day] && workHours[day] > 0) {
+                    const h = workHours[day];
+                    totalHours += h;
+                    const dailyPay = h * wage;
+                    contentDiv.innerHTML = `
+                        <div class="bg-gray-800 text-white rounded text-center font-bold px-1 py-0.5">${h}H</div>
+                        <div class="text-gray-500 text-center tracking-tighter">&times; ${wage.toLocaleString()}</div>
+                        <div class="text-blue-700 font-bold text-center border-t border-gray-300 pt-0.5 mt-0.5">${dailyPay.toLocaleString()}</div>
+                    `;
+                } else {
+                    contentDiv.innerHTML = ``;
+                }
+            }
+
+            const basePay = totalHours * wage;
+            
+            let juhyuPay = 0;
+            if (toggleJuhyu.checked) {
+                juhyuPay = Math.floor(basePay * 0.2); 
+            }
+            document.getElementById('rowJuhyu').style.display = toggleJuhyu.checked ? 'table-row' : 'none';
+
+            let overTimePay = 0;
+            if (toggleOvertime.checked) {
+                overTimePay = parseFloat(overtimeAmount.value) || 0;
+            }
+            document.getElementById('rowOvertime').style.display = toggleOvertime.checked ? 'table-row' : 'none';
+
+            const totalGross = basePay + juhyuPay + overTimePay;
+
+            let pension=0, health=0, care=0, emp=0;
+            if (toggleDeductions.checked) {
+                pension = Math.floor(totalGross * 0.045 / 10) * 10;
+                health = Math.floor(totalGross * 0.03545 / 10) * 10;
+                care = Math.floor(health * 0.1295 / 10) * 10;
+                emp = Math.floor(totalGross * 0.009 / 10) * 10;
+                
+                document.getElementById('deductionTable').classList.remove('hidden');
+                document.getElementById('noDeductionMsg').classList.add('hidden');
+            } else {
+                document.getElementById('deductionTable').classList.add('hidden');
+                document.getElementById('noDeductionMsg').classList.remove('hidden');
+            }
+            
+            const totalDeduct = pension + health + care + emp;
+            const netPay = totalGross - totalDeduct;
+
+            document.getElementById('outPeriod').innerText = `${year}년 ${month}월`;
+            document.getElementById('outName').innerText = workerName.value || '홍길동';
+            document.getElementById('outWage').innerText = wage.toLocaleString();
+            document.getElementById('outTotalHours').innerText = totalHours;
+
+            document.getElementById('outBasePay').innerText = basePay.toLocaleString();
+            document.getElementById('outJuhyu').innerText = juhyuPay.toLocaleString();
+            document.getElementById('outOvertime').innerText = overTimePay.toLocaleString();
+            document.getElementById('outTotalPay').innerText = totalGross.toLocaleString();
+
+            document.getElementById('outPension').innerText = pension.toLocaleString();
+            document.getElementById('outHealth').innerText = health.toLocaleString();
+            document.getElementById('outCare').innerText = care.toLocaleString();
+            document.getElementById('outEmp').innerText = emp.toLocaleString();
+            document.getElementById('outTotalDeduct').innerText = totalDeduct.toLocaleString();
+
+            document.getElementById('outNetPay').innerText = netPay.toLocaleString();
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
